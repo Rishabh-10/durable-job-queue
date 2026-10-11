@@ -1,0 +1,12 @@
+version: v2
+modules:
+  - path: proto
+lint:
+  use:
+    - STANDARD
+  except:
+    # The package is already jobqueue.v1; JobQueueService would only stutter.
+    - SERVICE_SUFFIX
+breaking:
+  use:
+    - FILE

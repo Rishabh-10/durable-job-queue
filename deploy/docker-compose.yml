@@ -1,0 +1,39 @@
+# Local dependency stack. Both services are exposed on their default ports so
+# the binaries run against them with no environment set. Override the host port
+# when something else already owns it, e.g.
+#   JQ_REDIS_HOST_PORT=6380 make up   (then JQ_REDIS_ADDR=localhost:6380)
+name: durable-job-queue
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: jobqueue
+      POSTGRES_PASSWORD: jobqueue
+      POSTGRES_DB: jobqueue
+    ports:
+      - "${JQ_POSTGRES_HOST_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jobqueue -d jobqueue"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:7-alpine
+    # Persistence is deliberately off. Redis holds only the scheduling index,
+    # which the sweeper rebuilds from PostgreSQL, and running without an RDB or
+    # AOF keeps that recovery path exercised rather than theoretical.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${JQ_REDIS_HOST_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  pgdata:

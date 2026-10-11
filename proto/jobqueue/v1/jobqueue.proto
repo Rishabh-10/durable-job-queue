@@ -1,0 +1,165 @@
+syntax = "proto3";
+
+package jobqueue.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/Rishabh-10/durable-job-queue/gen/jobqueue/v1;jobqueuev1";
+
+// JobQueue is a durable delayed job queue. PostgreSQL is the system of record;
+// Redis holds a sorted-set scheduling index that can be rebuilt from PostgreSQL
+// at any time. Delivery is at-least-once: handlers must be idempotent.
+service JobQueue {
+  // Enqueue schedules a job. If idempotency_key is set and a job with that key
+  // already exists on the queue, the existing job is returned unchanged.
+  rpc Enqueue(EnqueueRequest) returns (EnqueueResponse);
+
+  // GetJob returns a single job, including its attempt history.
+  rpc GetJob(GetJobRequest) returns (GetJobResponse);
+
+  // CancelJob prevents a job from running. Jobs already in a terminal state
+  // cannot be cancelled.
+  rpc CancelJob(CancelJobRequest) returns (CancelJobResponse);
+
+  // ListJobs pages through jobs on a queue, optionally filtered by state.
+  rpc ListJobs(ListJobsRequest) returns (ListJobsResponse);
+
+  // ListDeadLetters pages through jobs that exhausted their attempts.
+  rpc ListDeadLetters(ListDeadLettersRequest) returns (ListDeadLettersResponse);
+
+  // RequeueDeadLetter returns a dead job to the pending state, granting it
+  // additional attempts on top of those it has already used.
+  rpc RequeueDeadLetter(RequeueDeadLetterRequest) returns (RequeueDeadLetterResponse);
+
+  // QueueStats reports per-state job counts and scheduling lag for a queue.
+  rpc QueueStats(QueueStatsRequest) returns (QueueStatsResponse);
+}
+
+enum JobState {
+  JOB_STATE_UNSPECIFIED = 0;
+  JOB_STATE_PENDING = 1;
+  JOB_STATE_RUNNING = 2;
+  JOB_STATE_SUCCEEDED = 3;
+  JOB_STATE_FAILED = 4;
+  JOB_STATE_DEAD = 5;
+  JOB_STATE_CANCELLED = 6;
+}
+
+message Job {
+  string id = 1;
+  string queue = 2;
+  string kind = 3;
+  bytes payload = 4;
+  JobState state = 5;
+  google.protobuf.Timestamp run_at = 6;
+  int32 attempts = 7;
+  int32 max_attempts = 8;
+  string idempotency_key = 9;
+  string last_error = 10;
+  google.protobuf.Timestamp lease_expires_at = 11;
+  string lease_owner = 12;
+  google.protobuf.Timestamp created_at = 13;
+  google.protobuf.Timestamp updated_at = 14;
+}
+
+message Attempt {
+  int32 attempt_no = 1;
+  string worker_id = 2;
+  google.protobuf.Timestamp started_at = 3;
+  google.protobuf.Timestamp finished_at = 4;
+  string error = 5;
+}
+
+message EnqueueRequest {
+  string queue = 1;
+  string kind = 2;
+  bytes payload = 3;
+
+  // When to run the job. Omit both fields to run as soon as possible.
+  oneof schedule {
+    google.protobuf.Timestamp run_at = 4;
+    google.protobuf.Duration delay = 5;
+  }
+
+  // Total execution attempts before dead-lettering. Zero means server default.
+  int32 max_attempts = 6;
+
+  // Optional caller-supplied key making enqueue idempotent within a queue.
+  string idempotency_key = 7;
+}
+
+message EnqueueResponse {
+  Job job = 1;
+  // True when idempotency_key matched an existing job and nothing was created.
+  bool already_existed = 2;
+}
+
+message GetJobRequest {
+  string id = 1;
+}
+
+message GetJobResponse {
+  Job job = 1;
+  repeated Attempt attempts = 2;
+}
+
+message CancelJobRequest {
+  string id = 1;
+}
+
+message CancelJobResponse {
+  Job job = 1;
+}
+
+message ListJobsRequest {
+  string queue = 1;
+  // Optional filter; empty matches every state.
+  repeated JobState states = 2;
+  int32 page_size = 3;
+  string page_token = 4;
+}
+
+message ListJobsResponse {
+  repeated Job jobs = 1;
+  string next_page_token = 2;
+}
+
+message ListDeadLettersRequest {
+  string queue = 1;
+  int32 page_size = 2;
+  string page_token = 3;
+}
+
+message ListDeadLettersResponse {
+  repeated Job jobs = 1;
+  string next_page_token = 2;
+}
+
+message RequeueDeadLetterRequest {
+  string id = 1;
+  // Extra attempts to grant on top of those already used, so the job's attempt
+  // history stays append-only. Zero means the server default.
+  int32 additional_attempts = 2;
+  // Optional delay before the requeued job becomes due.
+  google.protobuf.Duration delay = 3;
+}
+
+message RequeueDeadLetterResponse {
+  Job job = 1;
+}
+
+message QueueStatsRequest {
+  string queue = 1;
+}
+
+message QueueStatsResponse {
+  string queue = 1;
+  map<string, int64> counts_by_state = 2;
+  // Size of the Redis scheduling index for this queue.
+  int64 scheduled_index_size = 3;
+  // Number of job ids handed to workers but not yet claimed.
+  int64 ready_depth = 4;
+  // Age of the oldest job that is due but has not started.
+  google.protobuf.Duration oldest_due_lag = 5;
+}

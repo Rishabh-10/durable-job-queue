@@ -1,0 +1,4 @@
+# Normalise line endings in the repository. scripts/demo.sh in particular must
+# keep LF endings: a CRLF shell script fails to execute on Linux, where the \r
+# becomes part of the interpreter path.
+* text=auto eol=lf

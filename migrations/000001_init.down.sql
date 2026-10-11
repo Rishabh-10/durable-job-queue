@@ -1,0 +1,4 @@
+DROP VIEW IF EXISTS dead_letters;
+DROP TABLE IF EXISTS job_attempts;
+DROP TABLE IF EXISTS jobs;
+DROP TYPE IF EXISTS job_state;
